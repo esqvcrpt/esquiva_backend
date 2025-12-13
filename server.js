@@ -33,3 +33,37 @@ app.post("/payment/create", (req, res) => {
     status: "PENDING"
   });
 });
+const payments = {};
+
+app.post("/payment/create", (req, res) => {
+  const { amount, merchantId } = req.body;
+  const paymentId = crypto.randomUUID();
+
+  payments[paymentId] = {
+    paymentId,
+    amount,
+    merchantId,
+    status: "PENDING"
+  };
+
+  res.json({
+    paymentId,
+    pixCopyPaste: "000201010212...",
+    qrCodeUrl: "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_" + paymentId,
+    status: "PENDING"
+  });
+});
+app.post("/payment/confirm", (req, res) => {
+  const { paymentId } = req.body;
+
+  if (!payments[paymentId]) {
+    return res.status(404).json({ error: "Payment not found" });
+  }
+
+  payments[paymentId].status = "PAID";
+
+  res.json({
+    paymentId,
+    status: "PAID"
+  });
+});
