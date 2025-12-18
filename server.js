@@ -1,13 +1,26 @@
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
+import Database from "better-sqlite3";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const payments = {};
+// 🔹 Banco SQLite
+const db = new Database("payments.db");
 
+// 🔹 Criar tabela se não existir
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS payments (
+    paymentId TEXT PRIMARY KEY,
+    merchantId TEXT,
+    amount REAL,
+    status TEXT
+  )
+`).run();
+
+// 🔹 Healthcheck
 app.get("/", (req, res) => {
   res.send("Esquiva API rodando");
 });
@@ -16,16 +29,20 @@ app.get("/ping", (req, res) => {
   res.json({ ok: true });
 });
 
+// 🔹 Criar pagamento
 app.post("/payment/create", (req, res) => {
   const { amount, merchantId } = req.body;
+
+  if (!amount || !merchantId) {
+    return res.status(400).json({ error: "Dados inválidos" });
+  }
+
   const paymentId = crypto.randomUUID();
 
-  payments[paymentId] = {
-    paymentId,
-    amount,
-    merchantId,
-    status: "PENDING"
-  };
+  db.prepare(`
+    INSERT INTO payments (paymentId, merchantId, amount, status)
+    VALUES (?, ?, ?, ?)
+  `).run(paymentId, merchantId, amount, "PENDING");
 
   res.json({
     paymentId,
@@ -37,15 +54,23 @@ app.post("/payment/create", (req, res) => {
   });
 });
 
-// ✅ PASSO 2 — CONFIRMAR PAGAMENTO
+// 🔹 Confirmar pagamento
 app.post("/payment/confirm", (req, res) => {
   const { paymentId } = req.body;
 
-  if (!payments[paymentId]) {
+  const payment = db
+    .prepare("SELECT * FROM payments WHERE paymentId = ?")
+    .get(paymentId);
+
+  if (!payment) {
     return res.status(404).json({ error: "Pagamento não encontrado" });
   }
 
-  payments[paymentId].status = "PAID";
+  db.prepare(`
+    UPDATE payments
+    SET status = 'PAID'
+    WHERE paymentId = ?
+  `).run(paymentId);
 
   res.json({
     paymentId,
