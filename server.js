@@ -6,41 +6,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Memória temporária de pagamentos
 const payments = {};
 
-// Rota raiz
 app.get("/", (req, res) => {
   res.send("Esquiva API rodando");
 });
 
-// Health check
 app.get("/ping", (req, res) => {
   res.json({ ok: true });
 });
 
-// Criar pagamento (simulação Pix)
 app.post("/payment/create", (req, res) => {
   const { amount, merchantId } = req.body;
-
-  if (!amount || !merchantId) {
-    return res.status(400).json({ error: "amount and merchantId are required" });
-  }
-
   const paymentId = crypto.randomUUID();
 
   payments[paymentId] = {
     paymentId,
     amount,
     merchantId,
-    status: "PENDING",
-    createdAt: new Date().toISOString()
+    status: "PENDING"
   };
 
   res.json({
     paymentId,
-    amount,
-    merchantId,
     pixCopyPaste: "000201010212...",
     qrCodeUrl:
       "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_" +
@@ -49,39 +37,23 @@ app.post("/payment/create", (req, res) => {
   });
 });
 
-// Confirmar pagamento (simulação de webhook Pix)
+// ✅ PASSO 2 — CONFIRMAR PAGAMENTO
 app.post("/payment/confirm", (req, res) => {
   const { paymentId } = req.body;
 
-  if (!paymentId) {
-    return res.status(400).json({ error: "paymentId is required" });
-  }
-
   if (!payments[paymentId]) {
-    return res.status(404).json({ error: "Payment not found" });
+    return res.status(404).json({ error: "Pagamento não encontrado" });
   }
 
   payments[paymentId].status = "PAID";
-  payments[paymentId].paidAt = new Date().toISOString();
 
   res.json({
     paymentId,
-    status: "PAID"
+    status: "PAID",
+    message: "Pagamento confirmado com sucesso"
   });
 });
 
-// Consultar pagamento
-app.get("/payment/:paymentId", (req, res) => {
-  const { paymentId } = req.params;
-
-  if (!payments[paymentId]) {
-    return res.status(404).json({ error: "Payment not found" });
-  }
-
-  res.json(payments[paymentId]);
-});
-
-// Start do servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
