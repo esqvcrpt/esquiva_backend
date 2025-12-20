@@ -82,3 +82,15 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
+app.get("/payment/status/:paymentId", (req, res) => {
+  const { paymentId } = req.params;
+
+  if (!payments[paymentId]) {
+    return res.status(404).json({ error: "Pagamento não encontrado" });
+  }
+
+  res.json({
+    paymentId,
+    status: payments[paymentId].status
+  });
+});
