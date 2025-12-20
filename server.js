@@ -43,7 +43,20 @@ app.post("/payment/create", (req, res) => {
     status: "PENDING"
   });
 });
+app.post("/payment/confirm", (req, res) => {
+  const { paymentId } = req.body;
 
+  if (!payments[paymentId]) {
+    return res.status(404).json({ error: "Pagamento não encontrado" });
+  }
+
+  payments[paymentId].status = "PAID";
+
+  res.json({
+    paymentId,
+    status: "PAID"
+  });
+});
 // Confirmar pagamento
 app.post("/payment/confirm", (req, res) => {
   const { paymentId } = req.body;
