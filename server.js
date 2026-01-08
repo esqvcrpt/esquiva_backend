@@ -113,6 +113,30 @@ app.get("/merchant/:merchantId/balance", (req, res) => {
 // START SERVER
 // ==============================
 const PORT = process.env.PORT || 3000;
+// Solicitar saque
+app.post("/merchant/:merchantId/withdraw", (req, res) => {
+  const { merchantId } = req.params;
+  const { amountUSDT } = req.body;
+
+  if (!amountUSDT || amountUSDT <= 0) {
+    return res.status(400).json({ error: "amountUSDT inválido" });
+  }
+
+  const currentBalance = merchantBalances[merchantId] || 0;
+
+  if (currentBalance < amountUSDT) {
+    return res.status(400).json({ error: "Saldo insuficiente" });
+  }
+
+  merchantBalances[merchantId] -= amountUSDT;
+
+  res.json({
+    merchantId,
+    withdrawn: amountUSDT,
+    remainingBalance: merchantBalances[merchantId],
+    status: "WITHDRAW_REQUESTED"
+  });
+});
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
