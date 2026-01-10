@@ -1,3 +1,4 @@
+import pool, { initDB } from "./db.js";
 const express = require("express");
 const cors = require("cors");
 
