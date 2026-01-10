@@ -1,21 +1,23 @@
-const express = require("express");
-const cors = require("cors");
-const { v4: uuidv4 } = require("uuid");
-const { Pool } = require("pg");
+import express from "express";
+import cors from "cors";
+import crypto from "crypto";
+import { Pool } from "pg";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔹 Conexão PostgreSQL (Render)
+// =======================
+// PostgreSQL
+// =======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: { rejectUnauthorized: false }
 });
 
-// 🔹 Inicializar tabelas
+// =======================
+// INIT DATABASE
+// =======================
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchants (
@@ -31,12 +33,32 @@ async function initDB() {
       status TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS withdrawals (
+      id SERIAL PRIMARY KEY,
+      merchant_id TEXT,
+      amount_usdt NUMERIC,
+      status TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
 }
-
 initDB();
 
-// 🔹 Criar pagamento
+// =======================
+// HEALTH
+// =======================
+app.get("/", (req, res) => {
+  res.send("Esquiva API rodando");
+});
+
+app.get("/ping", (req, res) => {
+  res.json({ ok: true });
+});
+
+// =======================
+// CREATE PAYMENT
+// =======================
 app.post("/payment/create", async (req, res) => {
   const { merchantId, amountBRL } = req.body;
 
@@ -46,8 +68,8 @@ app.post("/payment/create", async (req, res) => {
     });
   }
 
-  const paymentId = uuidv4();
-  const usdtAmount = Number(amountBRL) / 5; // taxa fictícia
+  const paymentId = crypto.randomUUID();
+  const usdtAmount = Number(amountBRL) / 5; // conversão simples (exemplo)
 
   await pool.query(
     `INSERT INTO payments (id, merchant_id, amount_brl, amount_usdt, status)
@@ -56,8 +78,8 @@ app.post("/payment/create", async (req, res) => {
   );
 
   await pool.query(
-    `INSERT INTO merchants (id, balance_usdt)
-     VALUES ($1, 0)
+    `INSERT INTO merchants (id)
+     VALUES ($1)
      ON CONFLICT (id) DO NOTHING`,
     [merchantId]
   );
@@ -65,14 +87,22 @@ app.post("/payment/create", async (req, res) => {
   res.json({
     paymentId,
     pixCopyPaste: "000201010212...",
-    qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_${paymentId}`,
+    qrCodeUrl:
+      "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_" +
+      paymentId,
     status: "PENDING"
   });
 });
 
-// 🔹 Confirmar pagamento
+// =======================
+// CONFIRM PAYMENT
+// =======================
 app.post("/payment/confirm", async (req, res) => {
   const { paymentId } = req.body;
+
+  if (!paymentId) {
+    return res.status(400).json({ error: "paymentId é obrigatório" });
+  }
 
   const payment = await pool.query(
     `SELECT * FROM payments WHERE id = $1`,
@@ -99,19 +129,15 @@ app.post("/payment/confirm", async (req, res) => {
     [payment.rows[0].amount_usdt, payment.rows[0].merchant_id]
   );
 
-  const balance = await pool.query(
-    `SELECT balance_usdt FROM merchants WHERE id = $1`,
-    [payment.rows[0].merchant_id]
-  );
-
   res.json({
     paymentId,
-    status: "PAID",
-    balanceUSDT: balance.rows[0].balance_usdt
+    status: "PAID"
   });
 });
 
-// 🔹 Ver saldo do lojista
+// =======================
+// MERCHANT BALANCE
+// =======================
 app.get("/merchant/:merchantId/balance", async (req, res) => {
   const { merchantId } = req.params;
 
@@ -126,9 +152,9 @@ app.get("/merchant/:merchantId/balance", async (req, res) => {
   });
 });
 
-// 🔹 Porta
-const PORT = process.env.PORT || 3000;
-// 🔹 Solicitar saque
+// =======================
+// WITHDRAW REQUEST
+// =======================
 app.post("/withdraw/request", async (req, res) => {
   const { merchantId, amountUSDT } = req.body;
 
@@ -151,12 +177,17 @@ app.post("/withdraw/request", async (req, res) => {
     return res.status(400).json({ error: "Saldo insuficiente" });
   }
 
-  // Deduz saldo
   await pool.query(
     `UPDATE merchants
      SET balance_usdt = balance_usdt - $1
      WHERE id = $2`,
     [amountUSDT, merchantId]
+  );
+
+  await pool.query(
+    `INSERT INTO withdrawals (merchant_id, amount_usdt, status)
+     VALUES ($1, $2, 'PENDING')`,
+    [merchantId, amountUSDT]
   );
 
   res.json({
@@ -165,6 +196,26 @@ app.post("/withdraw/request", async (req, res) => {
     status: "WITHDRAW_REQUESTED"
   });
 });
+
+// =======================
+// ADMIN — LIST WITHDRAWALS
+// =======================
+app.get("/admin/withdrawals", async (req, res) => {
+  const adminKey = req.headers["x-admin-key"];
+
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  const result = await pool.query(
+    `SELECT * FROM withdrawals ORDER BY created_at DESC`
+  );
+
+  res.json(result.rows);
+});
+
+// =======================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
