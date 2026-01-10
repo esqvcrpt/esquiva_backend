@@ -16,6 +16,9 @@ app.get("/", (req, res) => {
 app.use("/withdrawals", withdrawalsRoutes);
 
 const PORT = process.env.PORT || 3000;
+initDB()
+  .then(() => console.log("Banco inicializado"))
+  .catch(err => console.error("Erro DB", err));
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
