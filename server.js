@@ -1,61 +1,58 @@
-const express = require("express");
-const cors = require("cors");
-const crypto = require("crypto");
+import express from "express";
+import cors from "cors";
+import crypto from "crypto";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ==============================
-// MEMÓRIA (simples, sem banco)
-// ==============================
+// ===== MEMÓRIA (MVP) =====
 const payments = {};
 const merchantBalances = {};
+const withdrawals = [];
 
-// ==============================
-// FUNÇÃO PARA CREDITAR LOJISTA
-// ==============================
-function creditMerchant(merchantId, amount) {
-  if (!merchantBalances[merchantId]) {
-    merchantBalances[merchantId] = 0;
-  }
-  merchantBalances[merchantId] += amount;
-}
+// ===== CONFIG =====
+const BRL_TO_USDT_RATE = 5; // Ex: R$5 = 1 USDT
 
-// ==============================
-// CRIAR PAGAMENTO
-// ==============================
+// ===== ROTAS =====
+app.get("/", (req, res) => {
+  res.send("Esquiva API rodando");
+});
+
+app.get("/ping", (req, res) => {
+  res.json({ ok: true });
+});
+
+// ===== CRIAR PAGAMENTO =====
 app.post("/payment/create", (req, res) => {
   const { merchantId, amountBRL } = req.body;
 
   if (!merchantId || !amountBRL) {
-    return res.status(400).json({ error: "merchantId e amountBRL são obrigatórios" });
+    return res
+      .status(400)
+      .json({ error: "merchantId e amountBRL são obrigatórios" });
   }
 
   const paymentId = crypto.randomUUID();
-
-  // Simulação simples de conversão
-  const usdtAmount = amountBRL / 5;
 
   payments[paymentId] = {
     paymentId,
     merchantId,
     amountBRL,
-    usdtAmount,
     status: "PENDING"
   };
 
   res.json({
     paymentId,
     pixCopyPaste: "000201010212...",
-    qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_${paymentId}`,
+    qrCodeUrl:
+      "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_" +
+      paymentId,
     status: "PENDING"
   });
 });
 
-// ==============================
-// CONFIRMAR PAGAMENTO
-// ==============================
+// ===== CONFIRMAR PAGAMENTO =====
 app.post("/payment/confirm", (req, res) => {
   const { paymentId } = req.body;
 
@@ -63,43 +60,31 @@ app.post("/payment/confirm", (req, res) => {
     return res.status(400).json({ error: "paymentId é obrigatório" });
   }
 
-  if (!payments[paymentId]) {
+  const payment = payments[paymentId];
+
+  if (!payment) {
     return res.status(404).json({ error: "Pagamento não encontrado" });
   }
 
-  payments[paymentId].status = "PAID";
+  if (payment.status === "PAID") {
+    return res.json({ message: "Pagamento já confirmado" });
+  }
 
-  creditMerchant(
-    payments[paymentId].merchantId,
-    payments[paymentId].usdtAmount
-  );
+  payment.status = "PAID";
+
+  const usdtAmount = payment.amountBRL / BRL_TO_USDT_RATE;
+
+  merchantBalances[payment.merchantId] =
+    (merchantBalances[payment.merchantId] || 0) + usdtAmount;
 
   res.json({
     paymentId,
     status: "PAID",
-    balanceUSDT: merchantBalances[payments[paymentId].merchantId]
+    balanceUSDT: merchantBalances[payment.merchantId]
   });
 });
 
-// ==============================
-// STATUS DO PAGAMENTO
-// ==============================
-app.get("/payment/status/:paymentId", (req, res) => {
-  const { paymentId } = req.params;
-
-  if (!payments[paymentId]) {
-    return res.status(404).json({ error: "Pagamento não encontrado" });
-  }
-
-  res.json({
-    paymentId,
-    status: payments[paymentId].status
-  });
-});
-
-// ==============================
-// SALDO DO LOJISTA
-// ==============================
+// ===== CONSULTAR SALDO =====
 app.get("/merchant/:merchantId/balance", (req, res) => {
   const { merchantId } = req.params;
 
@@ -109,34 +94,47 @@ app.get("/merchant/:merchantId/balance", (req, res) => {
   });
 });
 
-// ==============================
-// START SERVER
-// ==============================
-const PORT = process.env.PORT || 3000;
-// Solicitar saque
-app.post("/merchant/:merchantId/withdraw", (req, res) => {
-  const { merchantId } = req.params;
-  const { amountUSDT } = req.body;
+// ===== SOLICITAR SAQUE =====
+app.post("/merchant/withdraw", (req, res) => {
+  const { merchantId, amountUSDT, walletAddress } = req.body;
 
-  if (!amountUSDT || amountUSDT <= 0) {
-    return res.status(400).json({ error: "amountUSDT inválido" });
+  if (!merchantId || !amountUSDT || !walletAddress) {
+    return res.status(400).json({
+      error: "merchantId, amountUSDT e walletAddress são obrigatórios"
+    });
   }
 
-  const currentBalance = merchantBalances[merchantId] || 0;
+  const balance = merchantBalances[merchantId] || 0;
 
-  if (currentBalance < amountUSDT) {
+  if (balance < amountUSDT) {
     return res.status(400).json({ error: "Saldo insuficiente" });
   }
 
   merchantBalances[merchantId] -= amountUSDT;
 
+  withdrawals.push({
+    merchantId,
+    amountUSDT,
+    walletAddress,
+    status: "PENDING",
+    createdAt: new Date()
+  });
+
   res.json({
     merchantId,
     withdrawn: amountUSDT,
     remainingBalance: merchantBalances[merchantId],
-    status: "WITHDRAW_REQUESTED"
+    status: "PENDING"
   });
 });
+
+// ===== LISTAR SAQUES (ADMIN) =====
+app.get("/admin/withdrawals", (req, res) => {
+  res.json(withdrawals);
+});
+
+// ===== SERVER =====
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
