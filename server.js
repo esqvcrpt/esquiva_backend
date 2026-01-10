@@ -216,6 +216,11 @@ app.get("/admin/withdrawals", async (req, res) => {
 
 // =======================
 const PORT = process.env.PORT || 3000;
+app.get("/debug/env", (req, res) => {
+  res.json({
+    adminKeyFromEnv: process.env.ADMIN_KEY || null
+  });
+});
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
