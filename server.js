@@ -19,6 +19,8 @@ app.use("/admin", withdrawalsRoutes);
 
 // porta
 const PORT = process.env.PORT || 3000;
+import withdrawalsRoutes from "./routes/withdrawals.js";
+app.use("/withdrawals", withdrawalsRoutes);
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
