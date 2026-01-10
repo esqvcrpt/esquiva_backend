@@ -6,16 +6,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// =====================
+// ===============================
 // MEMÓRIA (MVP)
-// =====================
+// ===============================
 const payments = {};
 const merchantBalances = {};
 const withdrawals = [];
 
-// =====================
-// HEALTHCHECK
-// =====================
+// ===============================
+// AUTH ADMIN (MVP)
+// ===============================
+function adminAuth(req, res, next) {
+  const key = req.headers["x-admin-key"];
+
+  if (key !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  next();
+}
+
+// ===============================
+// ROTAS BÁSICAS
+// ===============================
 app.get("/", (req, res) => {
   res.send("Esquiva API rodando");
 });
@@ -24,13 +37,13 @@ app.get("/ping", (req, res) => {
   res.json({ ok: true });
 });
 
-// =====================
-// CRIAR PAGAMENTO (PIX)
-// =====================
+// ===============================
+// CRIAR PAGAMENTO (PIX → USDT lógico)
+// ===============================
 app.post("/payment/create", (req, res) => {
-  const { merchantId, amountBRL } = req.body;
+  const { amountBRL, merchantId } = req.body;
 
-  if (!merchantId || !amountBRL) {
+  if (!amountBRL || !merchantId) {
     return res.status(400).json({
       error: "merchantId e amountBRL são obrigatórios"
     });
@@ -38,7 +51,7 @@ app.post("/payment/create", (req, res) => {
 
   const paymentId = crypto.randomUUID();
 
-  // conversão mock (exemplo: 1 USDT = 5 BRL)
+  // conversão mock (ex: R$50 = 10 USDT)
   const usdtAmount = amountBRL / 5;
 
   payments[paymentId] = {
@@ -59,9 +72,9 @@ app.post("/payment/create", (req, res) => {
   });
 });
 
-// =====================
+// ===============================
 // CONFIRMAR PAGAMENTO
-// =====================
+// ===============================
 app.post("/payment/confirm", (req, res) => {
   const { paymentId } = req.body;
 
@@ -76,17 +89,16 @@ app.post("/payment/confirm", (req, res) => {
   }
 
   if (payment.status === "PAID") {
-    return res.json({
-      paymentId,
-      status: "PAID",
-      balanceUSDT: merchantBalances[payment.merchantId] || 0
-    });
+    return res.json({ message: "Pagamento já confirmado" });
   }
 
   payment.status = "PAID";
 
-  merchantBalances[payment.merchantId] =
-    (merchantBalances[payment.merchantId] || 0) + payment.usdtAmount;
+  if (!merchantBalances[payment.merchantId]) {
+    merchantBalances[payment.merchantId] = 0;
+  }
+
+  merchantBalances[payment.merchantId] += payment.usdtAmount;
 
   res.json({
     paymentId,
@@ -95,9 +107,9 @@ app.post("/payment/confirm", (req, res) => {
   });
 });
 
-// =====================
+// ===============================
 // STATUS DO PAGAMENTO
-// =====================
+// ===============================
 app.get("/payment/status/:paymentId", (req, res) => {
   const { paymentId } = req.params;
 
@@ -111,9 +123,9 @@ app.get("/payment/status/:paymentId", (req, res) => {
   });
 });
 
-// =====================
+// ===============================
 // SALDO DO LOJISTA
-// =====================
+// ===============================
 app.get("/merchant/:merchantId/balance", (req, res) => {
   const { merchantId } = req.params;
 
@@ -123,9 +135,9 @@ app.get("/merchant/:merchantId/balance", (req, res) => {
   });
 });
 
-// =====================
-// SAQUE (SEMI-CUSTODIAL)
-// =====================
+// ===============================
+// SOLICITAR SAQUE
+// ===============================
 app.post("/merchant/withdraw", (req, res) => {
   const { merchantId, amountUSDT, walletAddress } = req.body;
 
@@ -138,9 +150,7 @@ app.post("/merchant/withdraw", (req, res) => {
   const balance = merchantBalances[merchantId] || 0;
 
   if (balance < amountUSDT) {
-    return res.status(400).json({
-      error: "Saldo insuficiente"
-    });
+    return res.status(400).json({ error: "Saldo insuficiente" });
   }
 
   merchantBalances[merchantId] -= amountUSDT;
@@ -151,28 +161,28 @@ app.post("/merchant/withdraw", (req, res) => {
     amountUSDT,
     walletAddress,
     status: "PENDING",
-    createdAt: new Date()
+    createdAt: new Date().toISOString()
   };
 
   withdrawals.push(withdrawal);
 
   res.json({
-    message: "Saque solicitado com sucesso",
+    message: "Saque solicitado",
     withdrawal
   });
 });
 
-// =====================
-// ADMIN – LISTAR SAQUES
-// =====================
-app.get("/admin/withdrawals", (req, res) => {
+// ===============================
+// ADMIN — LISTAR SAQUES
+// ===============================
+app.get("/admin/withdrawals", adminAuth, (req, res) => {
   res.json(withdrawals);
 });
 
-// =====================
-// ADMIN – CONFIRMAR SAQUE
-// =====================
-app.post("/admin/withdrawals/:id/complete", (req, res) => {
+// ===============================
+// ADMIN — CONFIRMAR SAQUE
+// ===============================
+app.post("/admin/withdrawals/:id/complete", adminAuth, (req, res) => {
   const { id } = req.params;
 
   const withdrawal = withdrawals.find(w => w.id === id);
@@ -189,7 +199,7 @@ app.post("/admin/withdrawals/:id/complete", (req, res) => {
   });
 });
 
-// =====================
+// ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
