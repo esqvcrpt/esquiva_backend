@@ -128,6 +128,43 @@ app.get("/merchant/:merchantId/balance", async (req, res) => {
 
 // 🔹 Porta
 const PORT = process.env.PORT || 3000;
+// 🔹 Solicitar saque
+app.post("/withdraw/request", async (req, res) => {
+  const { merchantId, amountUSDT } = req.body;
+
+  if (!merchantId || !amountUSDT) {
+    return res.status(400).json({
+      error: "merchantId e amountUSDT são obrigatórios"
+    });
+  }
+
+  const merchant = await pool.query(
+    `SELECT balance_usdt FROM merchants WHERE id = $1`,
+    [merchantId]
+  );
+
+  if (merchant.rows.length === 0) {
+    return res.status(404).json({ error: "Lojista não encontrado" });
+  }
+
+  if (Number(merchant.rows[0].balance_usdt) < Number(amountUSDT)) {
+    return res.status(400).json({ error: "Saldo insuficiente" });
+  }
+
+  // Deduz saldo
+  await pool.query(
+    `UPDATE merchants
+     SET balance_usdt = balance_usdt - $1
+     WHERE id = $2`,
+    [amountUSDT, merchantId]
+  );
+
+  res.json({
+    merchantId,
+    amountUSDT,
+    status: "WITHDRAW_REQUESTED"
+  });
+});
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
