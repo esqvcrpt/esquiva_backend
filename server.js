@@ -143,7 +143,52 @@ app.get("/admin/withdrawals", async (req, res) => {
 
   res.json(result.rows);
 });
+// =====================
+// ADMIN — APROVAR SAQUE
+// =====================
+app.post("/admin/withdrawals/:id/approve", async (req, res) => {
+  try {
+    // valida admin
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_KEY) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
 
+    const { id } = req.params;
+
+    // busca saque
+    const result = await pool.query(
+      "SELECT * FROM withdrawals WHERE id = $1",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Saque não encontrado" });
+    }
+
+    const withdrawal = result.rows[0];
+
+    // valida status
+    if (withdrawal.status !== "REQUESTED") {
+      return res.status(400).json({ error: "Saque já processado" });
+    }
+
+    // atualiza para PAID
+    await pool.query(
+      "UPDATE withdrawals SET status = $1 WHERE id = $2",
+      ["PAID", id]
+    );
+
+    return res.json({
+      id: Number(id),
+      status: "PAID",
+      message: "Saque aprovado com sucesso"
+    });
+  } catch (err) {
+    console.error("Erro ao aprovar saque:", err);
+    res.status(500).json({ error: "Erro interno do servidor" });
+  }
+});
 // =====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
