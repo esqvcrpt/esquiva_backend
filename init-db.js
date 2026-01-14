@@ -1,6 +1,16 @@
 import pool from "./db.js";
 
-async function init() {
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS withdrawals (
+      id SERIAL PRIMARY KEY,
+      merchant_id TEXT NOT NULL,
+      amount_usdt NUMERIC NOT NULL,
+      status TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS transactions (
       id SERIAL PRIMARY KEY,
@@ -12,8 +22,12 @@ async function init() {
     );
   `);
 
-  console.log("DB pronto");
-  process.exit(0);
+  console.log("Banco inicializado com sucesso");
 }
 
-init();
+initDB()
+  .then(() => process.exit())
+  .catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
