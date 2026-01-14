@@ -1,6 +1,10 @@
 const express = require("express");
 const cors = require("cors");
 const { v4: uuidv4 } = require("uuid");
+const { Pool } = require("pg");
+const express = require("express");
+const cors = require("cors");
+const { v4: uuidv4 } = require("uuid");
 const pool = require("./db");
 
 const app = express();
