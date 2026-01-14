@@ -1,4 +1,5 @@
 const pool = require("./db");
+
 async function initDB() {
   try {
     await pool.query(`
