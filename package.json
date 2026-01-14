@@ -6,6 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js"
+    "init-db": "node init-db.js"
+    }
   },
   "dependencies": {
     "cors": "^2.8.5",
