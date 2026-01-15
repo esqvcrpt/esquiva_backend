@@ -1,15 +1,21 @@
 {
   "name": "esquiva-backend",
   "version": "1.0.0",
+  "description": "API Esquiva",
   "type": "module",
+  "main": "server.js",
   "scripts": {
-    "init-db": "node init-db.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "init-db": "node init-db.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
-    "express": "^4.19.2",
     "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.0.0",
     "pg": "^8.11.5",
-    "express-rate-limit": "^7.3.0"
+    "uuid": "^9.0.1"
   }
 }
