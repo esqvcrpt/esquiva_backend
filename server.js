@@ -5,16 +5,45 @@ import pool from "./db.js";
 const app = express();
 app.use(express.json());
 
-// =========================
-// HEALTH CHECK
-// =========================
+/* =========================
+   CONFIG
+========================= */
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+
+/* =========================
+   HEALTH CHECK
+========================= */
 app.get("/", (req, res) => {
   res.json({ status: "Esquiva API rodando" });
 });
 
-// =========================
-// CRIAR PAGAMENTO
-// =========================
+/* =========================
+   ADMIN — CRIAR LOJISTA
+========================= */
+app.post("/admin/merchant/create", (req, res) => {
+  const adminKey = req.headers["x-admin-key"];
+
+  if (adminKey !== ADMIN_API_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  const { merchantId } = req.body;
+
+  if (!merchantId) {
+    return res.status(400).json({ error: "merchantId é obrigatório" });
+  }
+
+  const apiKey = uuidv4();
+
+  return res.json({
+    merchantId,
+    apiKey
+  });
+});
+
+/* =========================
+   PAGAMENTO — CRIAR
+========================= */
 app.post("/payment/create", async (req, res) => {
   const { merchantId, amountBRL } = req.body;
 
@@ -25,21 +54,27 @@ app.post("/payment/create", async (req, res) => {
   }
 
   const paymentId = uuidv4();
-  const usdtAmount = Number(amountBRL) / 5;
+  const amountUSDT = amountBRL / 5; // conversão fixa
+
+  await pool.query(
+    `
+    INSERT INTO transactions (merchant_id, type, amount_usdt, reference)
+    VALUES ($1, 'CREDIT', $2, $3)
+    `,
+    [merchantId, amountUSDT, paymentId]
+  );
 
   res.json({
     paymentId,
-    pixCopyPaste: "000201010212...",
-    qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_${paymentId}`,
-    status: "PENDING",
-    usdtAmount
+    amountUSDT,
+    status: "CREATED"
   });
 });
 
-// =========================
-// CONFIRMAR PAGAMENTO
-// =========================
-app.post("/payment/confirm", (req, res) => {
+/* =========================
+   PAGAMENTO — CONFIRMAR
+========================= */
+app.post("/payment/confirm", async (req, res) => {
   const { paymentId } = req.body;
 
   if (!paymentId) {
@@ -53,10 +88,37 @@ app.post("/payment/confirm", (req, res) => {
   });
 });
 
-// =========================
-// SOLICITAR SAQUE
-// =========================
-app.post("/merchant/withdraw", async (req, res) => {
+/* =========================
+   LOJISTA — CONSULTAR SALDO
+========================= */
+app.get("/merchant/:merchantId/balance", async (req, res) => {
+  const { merchantId } = req.params;
+
+  const result = await pool.query(
+    `
+    SELECT 
+      COALESCE(SUM(
+        CASE 
+          WHEN type = 'CREDIT' THEN amount_usdt
+          WHEN type = 'DEBIT' THEN -amount_usdt
+        END
+      ), 0) AS balance
+    FROM transactions
+    WHERE merchant_id = $1
+    `,
+    [merchantId]
+  );
+
+  res.json({
+    merchantId,
+    balance: result.rows[0].balance
+  });
+});
+
+/* =========================
+   SAQUE — SOLICITAR
+========================= */
+app.post("/withdraw/request", async (req, res) => {
   const { merchantId, amountUSDT } = req.body;
 
   if (!merchantId || !amountUSDT) {
@@ -66,45 +128,50 @@ app.post("/merchant/withdraw", async (req, res) => {
   }
 
   await pool.query(
-    `INSERT INTO withdrawals (merchant_id, amount_usdt, status)
-     VALUES ($1, $2, 'REQUESTED')`,
+    `
+    INSERT INTO withdrawals (merchant_id, amount_usdt, status)
+    VALUES ($1, $2, 'REQUESTED')
+    `,
     [merchantId, amountUSDT]
   );
 
-  res.json({ message: "Saque solicitado com sucesso" });
+  res.json({
+    status: "REQUESTED",
+    message: "Saque solicitado com sucesso"
+  });
 });
 
-// =========================
-// LISTAR SAQUES (ADMIN)
-// =========================
+/* =========================
+   ADMIN — LISTAR SAQUES
+========================= */
 app.get("/admin/withdrawals", async (req, res) => {
   const adminKey = req.headers["x-admin-key"];
 
-  if (adminKey !== process.env.ADMIN_KEY) {
+  if (adminKey !== ADMIN_API_KEY) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
   const result = await pool.query(
-    "SELECT * FROM withdrawals ORDER BY created_at DESC"
+    `SELECT * FROM withdrawals ORDER BY created_at DESC`
   );
 
   res.json(result.rows);
 });
 
-// =========================
-// APROVAR SAQUE (ADMIN)
-// =========================
-app.post("/admin/withdrawals/:id/approve", async (req, res) => {
+/* =========================
+   ADMIN — APROVAR SAQUE
+========================= */
+app.post("/admin/withdraw/approve", async (req, res) => {
   const adminKey = req.headers["x-admin-key"];
 
-  if (adminKey !== process.env.ADMIN_KEY) {
+  if (adminKey !== ADMIN_API_KEY) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
-  const { id } = req.params;
+  const { id } = req.body;
 
   await pool.query(
-    "UPDATE withdrawals SET status='PAID' WHERE id=$1",
+    `UPDATE withdrawals SET status = 'PAID' WHERE id = $1`,
     [id]
   );
 
@@ -115,45 +182,10 @@ app.post("/admin/withdrawals/:id/approve", async (req, res) => {
   });
 });
 
-// =========================
-// START SERVER
-// =========================
+/* =========================
+   START
+========================= */
 const PORT = process.env.PORT || 3000;
-// =========================
-// ADMIN - CRIAR LOJISTA
-// =========================
-
-const merchants = {};
-
-app.post("/admin/merchant/create", (req, res) => {
-  const adminKey = req.headers["x-admin-key"];
-  const { merchantId } = req.body;
-
-  if (adminKey !== process.env.ADMIN_KEY) {
-    return res.status(401).json({ error: "Não autorizado" });
-  }
-
-  if (!merchantId) {
-    return res.status(400).json({ error: "merchantId é obrigatório" });
-  }
-
-  if (merchants[merchantId]) {
-    return res.status(400).json({ error: "Lojista já existe" });
-  }
-
-  const apiKey = crypto.randomUUID();
-
-  merchants[merchantId] = {
-    merchantId,
-    apiKey,
-    balanceUSDT: 0
-  };
-
-  res.json({
-    merchantId,
-    apiKey
-  });
-});
 app.listen(PORT, () => {
-  console.log("🚀 Server rodando na porta", PORT);
+  console.log("Servidor rodando na porta", PORT);
 });
