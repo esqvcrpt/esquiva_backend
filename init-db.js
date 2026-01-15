@@ -37,4 +37,21 @@ async function init() {
       CREATE TABLE IF NOT EXISTS withdrawals (
         id SERIAL PRIMARY KEY,
         merchant_id TEXT NOT NULL,
-        amount_usdt NUMERIC NOT
+        amount_usdt NUMERIC NOT NULL,
+        status TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    console.log("Banco inicializado com sucesso");
+
+    // 🔴 ISSO É O PONTO-CHAVE
+    await pool.end(); // fecha conexão
+    process.exit(0);
+  } catch (err) {
+    console.error("Erro ao inicializar banco:", err);
+    process.exit(1);
+  }
+}
+
+init();
