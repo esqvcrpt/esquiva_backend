@@ -119,6 +119,41 @@ app.post("/admin/withdrawals/:id/approve", async (req, res) => {
 // START SERVER
 // =========================
 const PORT = process.env.PORT || 3000;
+// =========================
+// ADMIN - CRIAR LOJISTA
+// =========================
+
+const merchants = {};
+
+app.post("/admin/merchant/create", (req, res) => {
+  const adminKey = req.headers["x-admin-key"];
+  const { merchantId } = req.body;
+
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  if (!merchantId) {
+    return res.status(400).json({ error: "merchantId é obrigatório" });
+  }
+
+  if (merchants[merchantId]) {
+    return res.status(400).json({ error: "Lojista já existe" });
+  }
+
+  const apiKey = crypto.randomUUID();
+
+  merchants[merchantId] = {
+    merchantId,
+    apiKey,
+    balanceUSDT: 0
+  };
+
+  res.json({
+    merchantId,
+    apiKey
+  });
+});
 app.listen(PORT, () => {
   console.log("🚀 Server rodando na porta", PORT);
 });
