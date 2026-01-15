@@ -1,116 +1,199 @@
-import express from "express";
-import cors from "cors";
-import crypto from "crypto";
-import pool from "./db.js";
+const express = require("express");
+const { v4: uuidv4 } = require("uuid");
+const pool = require("./db");
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-// =====================
-// Middleware lojista
-// =====================
-async function merchantAuth(req, res, next) {
-  const apiKey = req.headers["x-merchant-key"];
+// ===============================
+// STORAGE EM MEMÓRIA (SIMPLIFICADO)
+// ===============================
+const payments = {};
+const merchantBalances = {};
+const merchants = {};
 
-  if (!apiKey) {
-    return res.status(401).json({ error: "API Key obrigatória" });
-  }
-
-  const result = await pool.query(
-    "SELECT id FROM merchants WHERE api_key = $1",
-    [apiKey]
-  );
-
-  if (result.rowCount === 0) {
-    return res.status(403).json({ error: "API Key inválida" });
-  }
-
-  req.merchantId = result.rows[0].id;
-  next();
-}
-
-// =====================
-// Health check
-// =====================
+// ===============================
+// HEALTH CHECK
+// ===============================
 app.get("/", (req, res) => {
   res.send("Esquiva API rodando");
 });
 
-// =====================
-// Criar pagamento
-// =====================
-app.post("/payment/create", merchantAuth, async (req, res) => {
-  const { amountBRL } = req.body;
+// ===============================
+// ADMIN – CRIAR LOJISTA
+// ===============================
+app.post("/admin/merchant/create", (req, res) => {
+  const adminKey = req.headers["x-admin-key"];
 
-  if (!amountBRL) {
-    return res.status(400).json({ error: "amountBRL obrigatório" });
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
   }
 
-  const paymentId = crypto.randomUUID();
-  const usdtAmount = amountBRL / 10; // exemplo conversão fixa
+  const { merchant_id } = req.body;
 
-  await pool.query(
-    `
-    INSERT INTO transactions (merchant_id, type, amount_usdt, reference)
-    VALUES ($1, 'CREDIT', $2, $3)
-    `,
-    [req.merchantId, usdtAmount, paymentId]
-  );
+  if (!merchant_id) {
+    return res.status(400).json({ error: "merchant_id é obrigatório" });
+  }
+
+  if (merchants[merchant_id]) {
+    return res.status(400).json({ error: "Lojista já existe" });
+  }
+
+  merchants[merchant_id] = true;
+  merchantBalances[merchant_id] = 0;
+
+  res.json({
+    message: "Lojista criado com sucesso",
+    merchantId: merchant_id
+  });
+});
+
+// ===============================
+// CRIAR PAGAMENTO (PIX → USDT)
+// ===============================
+app.post("/payment/create", (req, res) => {
+  const { merchantId, amountBRL } = req.body;
+
+  if (!merchantId || !amountBRL) {
+    return res
+      .status(400)
+      .json({ error: "merchantId e amountBRL são obrigatórios" });
+  }
+
+  if (!merchants[merchantId]) {
+    return res.status(404).json({ error: "Lojista não encontrado" });
+  }
+
+  const paymentId = uuidv4();
+
+  // exemplo fixo: 1 USDT = 5 BRL
+  const usdtAmount = amountBRL / 5;
+
+  payments[paymentId] = {
+    merchantId,
+    usdtAmount,
+    status: "PENDING"
+  };
 
   res.json({
     paymentId,
+    pixCopyPaste: "000201010212...",
+    qrCodeUrl:
+      "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=PIX_" +
+      paymentId,
     status: "PENDING"
   });
 });
 
-// =====================
-// Confirmar pagamento
-// =====================
-app.post("/payment/confirm", merchantAuth, async (req, res) => {
+// ===============================
+// CONFIRMAR PAGAMENTO
+// ===============================
+app.post("/payment/confirm", (req, res) => {
   const { paymentId } = req.body;
 
-  await pool.query(
-    `
-    UPDATE transactions
-    SET reference = reference
-    WHERE reference = $1 AND merchant_id = $2
-    `,
-    [paymentId, req.merchantId]
-  );
+  if (!paymentId) {
+    return res.status(400).json({ error: "paymentId é obrigatório" });
+  }
+
+  if (!payments[paymentId]) {
+    return res.status(404).json({ error: "Pagamento não encontrado" });
+  }
+
+  payments[paymentId].status = "PAID";
+
+  const { merchantId, usdtAmount } = payments[paymentId];
+  merchantBalances[merchantId] += usdtAmount;
 
   res.json({
     paymentId,
-    status: "PAID"
+    status: "PAID",
+    balanceUSDT: merchantBalances[merchantId]
   });
 });
 
-// =====================
-// Ver saldo do lojista
-// =====================
-app.get("/merchant/balance", merchantAuth, async (req, res) => {
+// ===============================
+// CONSULTAR SALDO DO LOJISTA
+// ===============================
+app.get("/merchant/:merchantId/balance", (req, res) => {
+  const { merchantId } = req.params;
+
+  res.json({
+    merchantId,
+    balanceUSDT: merchantBalances[merchantId] || 0
+  });
+});
+
+// ===============================
+// SOLICITAR SAQUE
+// ===============================
+app.post("/merchant/:merchantId/withdraw", async (req, res) => {
+  const { merchantId } = req.params;
+  const { amountUSDT } = req.body;
+
+  if (!amountUSDT) {
+    return res.status(400).json({ error: "amountUSDT é obrigatório" });
+  }
+
+  const balance = merchantBalances[merchantId] || 0;
+
+  if (balance < amountUSDT) {
+    return res.status(400).json({ error: "Saldo insuficiente" });
+  }
+
+  merchantBalances[merchantId] -= amountUSDT;
+
   const result = await pool.query(
-    `
-    SELECT
-      COALESCE(SUM(
-        CASE
-          WHEN type = 'CREDIT' THEN amount_usdt
-          WHEN type = 'DEBIT' THEN -amount_usdt
-        END
-      ), 0) AS balance
-    FROM transactions
-    WHERE merchant_id = $1
-    `,
-    [req.merchantId]
+    `INSERT INTO withdrawals (merchant_id, amount_usdt, status)
+     VALUES ($1, $2, 'REQUESTED')
+     RETURNING *`,
+    [merchantId, amountUSDT]
+  );
+
+  res.json(result.rows[0]);
+});
+
+// ===============================
+// ADMIN – LISTAR SAQUES
+// ===============================
+app.get("/admin/withdrawals", async (req, res) => {
+  const adminKey = req.headers["x-admin-key"];
+
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  const result = await pool.query(
+    "SELECT * FROM withdrawals ORDER BY created_at DESC"
+  );
+
+  res.json(result.rows);
+});
+
+// ===============================
+// ADMIN – APROVAR SAQUE
+// ===============================
+app.post("/admin/withdrawals/:id/approve", async (req, res) => {
+  const adminKey = req.headers["x-admin-key"];
+
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  const { id } = req.params;
+
+  await pool.query(
+    "UPDATE withdrawals SET status='PAID' WHERE id=$1",
+    [id]
   );
 
   res.json({
-    merchantId: req.merchantId,
-    balanceUSDT: result.rows[0].balance
+    id,
+    status: "PAID",
+    message: "Saque aprovado com sucesso"
   });
 });
 
-// =====================
+// ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
