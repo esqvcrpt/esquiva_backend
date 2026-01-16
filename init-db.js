@@ -1,17 +1,12 @@
-import pkg from "pg";
-const { Pool } = pkg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+import pool from "./db.js";
 
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchants (
       id SERIAL PRIMARY KEY,
       merchant_id TEXT UNIQUE NOT NULL,
-      api_key TEXT NOT NULL,
+      api_key TEXT UNIQUE NOT NULL,
+      balance NUMERIC DEFAULT 0,
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
@@ -38,10 +33,6 @@ async function initDB() {
   `);
 
   console.log("Banco inicializado com sucesso");
-  process.exit(0);
 }
 
-initDB().catch(err => {
-  console.error("Erro ao iniciar DB:", err);
-  process.exit(1);
-});
+initDB().then(() => process.exit(0));
