@@ -5,7 +5,7 @@ async function initDB() {
     CREATE TABLE IF NOT EXISTS merchants (
       id SERIAL PRIMARY KEY,
       merchant_id TEXT UNIQUE NOT NULL,
-      api_key TEXT UNIQUE NOT NULL,
+      api_key TEXT NOT NULL,
       balance NUMERIC DEFAULT 0,
       created_at TIMESTAMP DEFAULT NOW()
     );
@@ -35,4 +35,9 @@ async function initDB() {
   console.log("Banco inicializado com sucesso");
 }
 
-initDB().then(() => process.exit(0));
+initDB()
+  .then(() => process.exit())
+  .catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
