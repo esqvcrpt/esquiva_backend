@@ -1,53 +1,29 @@
 import pool from "./db.js";
 
 async function initDB() {
-  try {
-    /* =======================
-       MERCHANTS
-    ======================= */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS merchants (
-        id SERIAL PRIMARY KEY,
-        merchant_id TEXT UNIQUE NOT NULL,
-        api_key TEXT UNIQUE NOT NULL,
-        balance NUMERIC DEFAULT 0,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS merchants (
+      merchant_id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
 
-    /* =======================
-       PAYMENTS
-    ======================= */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS payments (
-        id SERIAL PRIMARY KEY,
-        payment_id TEXT UNIQUE NOT NULL,
-        merchant_id TEXT NOT NULL,
-        amount_usdt NUMERIC NOT NULL,
-        status TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS withdrawals (
+      id SERIAL PRIMARY KEY,
+      merchant_id TEXT NOT NULL,
+      amount_usdt NUMERIC NOT NULL,
+      status TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
 
-    /* =======================
-       WITHDRAWALS (opcional)
-    ======================= */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS withdrawals (
-        id SERIAL PRIMARY KEY,
-        merchant_id TEXT NOT NULL,
-        amount_usdt NUMERIC NOT NULL,
-        status TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-
-    console.log("Banco inicializado com sucesso");
-    process.exit(0);
-  } catch (err) {
-    console.error("Erro ao inicializar banco:", err);
-    process.exit(1);
-  }
+  console.log("Banco inicializado com sucesso");
+  process.exit(0);
 }
 
-initDB();
+initDB().catch(err => {
+  console.error("Erro ao inicializar banco:", err);
+  process.exit(1);
+});
