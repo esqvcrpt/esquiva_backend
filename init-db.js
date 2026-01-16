@@ -7,21 +7,19 @@ const pool = new Pool({
 });
 
 async function initDB() {
-  // MERCHANTS
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchants (
       id SERIAL PRIMARY KEY,
       merchant_id TEXT UNIQUE NOT NULL,
-      api_key TEXT UNIQUE NOT NULL,
-      balance NUMERIC DEFAULT 0,
+      api_key TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
 
-  // PAYMENTS
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payments (
-      id UUID PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
+      payment_id TEXT UNIQUE NOT NULL,
       merchant_id TEXT NOT NULL,
       amount_usdt NUMERIC NOT NULL,
       status TEXT NOT NULL,
@@ -29,7 +27,6 @@ async function initDB() {
     );
   `);
 
-  // WITHDRAWALS
   await pool.query(`
     CREATE TABLE IF NOT EXISTS withdrawals (
       id SERIAL PRIMARY KEY,
@@ -45,6 +42,6 @@ async function initDB() {
 }
 
 initDB().catch(err => {
-  console.error("Erro ao inicializar banco:", err);
+  console.error("Erro ao iniciar DB:", err);
   process.exit(1);
 });
