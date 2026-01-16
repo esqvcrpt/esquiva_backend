@@ -22,9 +22,9 @@ app.use(
    AUTH MIDDLEWARES
 ======================== */
 function requireAdmin(req, res, next) {
-  const adminKey = req.headers["x-admin-key"];
+  const admin_key = req.headers["x-admin-key"];
 
-  if (!adminKey || adminKey !== process.env.admin_key) {
+  if (!admin_key || admin_key !== process.env.admin_key) {
     return res.status(401).json({ error: "Não autorizado (admin)" });
   }
 
@@ -32,14 +32,14 @@ function requireAdmin(req, res, next) {
 }
 
 async function requireMerchant(req, res, next) {
-  const apiKey = req.headers["x-api-key"];
-  if (!apiKey) {
+  const admin_key = req.headers["x-admin-key"];
+  if (!admin_key) {
     return res.status(401).json({ error: "API Key ausente" });
   }
 
   const { rows } = await pool.query(
-    "SELECT merchant_id FROM merchants WHERE api_key = $1",
-    [apiKey]
+    "SELECT merchant_id FROM merchants WHERE admin_key = $1",
+    [admin_key]
   );
 
   if (rows.length === 0) {
@@ -67,14 +67,14 @@ app.post("/admin/merchant/create", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "merchantId é obrigatório" });
     }
 
-    const apiKey = crypto.randomUUID();
+    const admin_key = crypto.randomUUID();
 
     await pool.query(
-      "INSERT INTO merchants (merchant_id, api_key) VALUES ($1, $2)",
-      [merchantId, apiKey]
+      "INSERT INTO merchants (merchant_id, admin_key) VALUES ($1, $2)",
+      [merchantId, admin_key]
     );
 
-    res.json({ merchantId, apiKey });
+    res.json({ merchantId, admin_key });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
