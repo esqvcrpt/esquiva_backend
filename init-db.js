@@ -21,8 +21,7 @@ async function initDB() {
   // PAYMENTS
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payments (
-      id SERIAL PRIMARY KEY,
-      payment_id TEXT UNIQUE NOT NULL,
+      id UUID PRIMARY KEY,
       merchant_id TEXT NOT NULL,
       amount_usdt NUMERIC NOT NULL,
       status TEXT NOT NULL,
@@ -42,11 +41,10 @@ async function initDB() {
   `);
 
   console.log("Banco inicializado com sucesso");
+  process.exit(0);
 }
 
-initDB()
-  .then(() => process.exit())
-  .catch(err => {
-    console.error("Erro ao inicializar banco:", err);
-    process.exit(1);
-  });
+initDB().catch(err => {
+  console.error("Erro ao inicializar banco:", err);
+  process.exit(1);
+});
