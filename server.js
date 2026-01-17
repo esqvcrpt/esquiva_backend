@@ -8,9 +8,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+/* ========================
+   CONFIG
+======================== */
 const ADMIN_KEY = process.env.ADMIN_KEY;
 
-/* RATE LIMIT */
+/* ========================
+   RATE LIMIT
+======================== */
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
@@ -18,12 +23,16 @@ app.use(
   })
 );
 
-/* HEALTH */
+/* ========================
+   HEALTH
+======================== */
 app.get("/", (req, res) => {
   res.json({ status: "Esquiva API rodando" });
 });
 
-/* ADMIN — CREATE MERCHANT */
+/* ========================
+   ADMIN - CREATE MERCHANT
+======================== */
 app.post("/admin/merchant/create", async (req, res) => {
   try {
     const adminKey = req.headers["x-admin-key"];
@@ -46,64 +55,115 @@ app.post("/admin/merchant/create", async (req, res) => {
 
     res.json({ merchantId, apiKey });
   } catch (err) {
-    console.error(err);
+    console.error("ERRO CREATE MERCHANT:", err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* MERCHANT — CREATE PAYMENT */
-app.post("/payment/create", async (req, res) => {
+/* ========================
+   MERCHANT - BALANCE
+======================== */
+app.get("/merchant/:merchantId/balance", async (req, res) => {
   try {
     const apiKey = req.headers["x-api-key"];
-    const { merchantId, amountUSDT } = req.body;
+    if (!apiKey) {
+      return res.status(401).json({ error: "API Key ausente" });
+    }
 
-    if (!apiKey) return res.status(401).json({ error: "API Key ausente" });
-    if (!merchantId || !amountUSDT)
-      return res.status(400).json({ error: "merchantId e amountUSDT são obrigatórios" });
+    const { merchantId } = req.params;
 
-    const merchant = await pool.query(
-      `SELECT * FROM merchants WHERE merchant_id = $1 AND api_key = $2`,
+    const result = await pool.query(
+      `SELECT balance FROM merchants
+       WHERE merchant_id = $1 AND api_key = $2`,
       [merchantId, apiKey]
     );
 
-    if (merchant.rowCount === 0)
+    if (result.rowCount === 0) {
       return res.status(401).json({ error: "API Key inválida" });
+    }
+
+    res.json({
+      merchantId,
+      balance: result.rows[0].balance.toString(),
+    });
+  } catch (err) {
+    console.error("ERRO BALANCE:", err);
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
+/* ========================
+   PAYMENT - CREATE
+======================== */
+app.post("/payment/create", async (req, res) => {
+  try {
+    const apiKey = req.headers["x-api-key"];
+    if (!apiKey) {
+      return res.status(401).json({ error: "API Key ausente" });
+    }
+
+    const { merchantId, amountUSDT } = req.body;
+
+    if (!merchantId || !amountUSDT) {
+      return res.status(400).json({
+        error: "merchantId e amountUSDT são obrigatórios",
+      });
+    }
+
+    // valida lojista
+    const merchant = await pool.query(
+      `SELECT merchant_id FROM merchants
+       WHERE merchant_id = $1 AND api_key = $2`,
+      [merchantId, apiKey]
+    );
+
+    if (merchant.rowCount === 0) {
+      return res.status(401).json({ error: "API Key inválida" });
+    }
 
     const paymentId = crypto.randomUUID();
 
     await pool.query(
-      `INSERT INTO payments (id, merchant_id, amount_usdt, status)
+      `INSERT INTO payments (payment_id, merchant_id, amount_usdt, status)
        VALUES ($1, $2, $3, 'CREATED')`,
       [paymentId, merchantId, amountUSDT]
     );
 
-    res.json({ paymentId, amountUSDT, status: "CREATED" });
+    res.json({
+      paymentId,
+      amountUSDT,
+      status: "CREATED",
+    });
   } catch (err) {
-    console.error(err);
+    console.error("ERRO PAYMENT CREATE:", err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* PAYMENT — CONFIRM */
+/* ========================
+   PAYMENT - CONFIRM
+======================== */
 app.post("/payment/confirm", async (req, res) => {
   try {
     const { paymentId } = req.body;
-    if (!paymentId)
+    if (!paymentId) {
       return res.status(400).json({ error: "paymentId é obrigatório" });
+    }
 
     const payment = await pool.query(
-      `SELECT * FROM payments WHERE id = $1`,
+      `SELECT merchant_id, amount_usdt FROM payments
+       WHERE payment_id = $1 AND status = 'CREATED'`,
       [paymentId]
     );
 
-    if (payment.rowCount === 0)
+    if (payment.rowCount === 0) {
       return res.status(404).json({ error: "Pagamento não encontrado" });
+    }
 
-    if (payment.rows[0].status === "PAID")
-      return res.json({ status: "PAID" });
+    const { merchant_id, amount_usdt } = payment.rows[0];
 
     await pool.query(
-      `UPDATE payments SET status = 'PAID' WHERE id = $1`,
+      `UPDATE payments SET status = 'PAID' WHERE payment_id = $1`,
       [paymentId]
     );
 
@@ -111,7 +171,7 @@ app.post("/payment/confirm", async (req, res) => {
       `UPDATE merchants
        SET balance = balance + $1
        WHERE merchant_id = $2`,
-      [payment.rows[0].amount_usdt, payment.rows[0].merchant_id]
+      [amount_usdt, merchant_id]
     );
 
     res.json({
@@ -120,41 +180,15 @@ app.post("/payment/confirm", async (req, res) => {
       message: "Pagamento confirmado com sucesso",
     });
   } catch (err) {
-    console.error(err);
+    console.error("ERRO PAYMENT CONFIRM:", err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* MERCHANT — BALANCE */
-app.get("/merchant/:merchantId/balance", async (req, res) => {
-  try {
-    const apiKey = req.headers["x-api-key"];
-    const { merchantId } = req.params;
-
-    if (!apiKey)
-      return res.status(401).json({ error: "API Key ausente" });
-
-    const result = await pool.query(
-      `SELECT balance FROM merchants
-       WHERE merchant_id = $1 AND api_key = $2`,
-      [merchantId, apiKey]
-    );
-
-    if (result.rowCount === 0)
-      return res.status(401).json({ error: "API Key inválida" });
-
-    res.json({
-      merchantId,
-      balance: result.rows[0].balance.toString(),
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-/* START */
+/* ========================
+   START
+======================== */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("API rodando na porta", PORT)
-);
+app.listen(PORT, () => {
+  console.log("API rodando na porta", PORT);
+});
