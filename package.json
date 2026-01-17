@@ -4,14 +4,13 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "init-db": "node init-db.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "init-db": "node init-db.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "pg": "^8.11.5",
-    "uuid": "^9.0.1",
     "cors": "^2.8.5",
-    "express-rate-limit": "^7.0.0"
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.0",
+    "pg": "^8.11.5"
   }
 }
