@@ -8,11 +8,12 @@ async function initDB() {
       id SERIAL PRIMARY KEY,
       merchant_id TEXT UNIQUE NOT NULL,
       api_key TEXT UNIQUE NOT NULL,
+      balance NUMERIC DEFAULT 0,
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
 
-  console.log("Tabela merchants recriada com sucesso");
+  console.log("Tabela merchants recriada com balance");
 }
 
 initDB()
