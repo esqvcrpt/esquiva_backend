@@ -1,24 +1,37 @@
 import pool from "./db.js";
 
-async function initDB() {
-  await pool.query(`
-    DROP TABLE IF EXISTS merchants CASCADE;
+async function init() {
+  try {
+    /* ========================
+       MERCHANTS
+    ======================== */
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS merchants (
+        merchant_id TEXT PRIMARY KEY,
+        api_key TEXT NOT NULL,
+        balance NUMERIC DEFAULT 0
+      );
+    `);
 
-    CREATE TABLE merchants (
-      id SERIAL PRIMARY KEY,
-      merchant_id TEXT UNIQUE NOT NULL,
-      api_key TEXT UNIQUE NOT NULL,
-      balance NUMERIC DEFAULT 0,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `);
+    /* ========================
+       PAYMENTS
+    ======================== */
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        payment_id TEXT PRIMARY KEY,
+        merchant_id TEXT REFERENCES merchants(merchant_id),
+        amount_usdt NUMERIC NOT NULL,
+        status TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
 
-  console.log("Tabela merchants recriada com balance");
+    console.log("Banco inicializado com sucesso");
+    process.exit(0);
+  } catch (err) {
+    console.error("Erro ao inicializar banco:", err);
+    process.exit(1);
+  }
 }
 
-initDB()
-  .then(() => process.exit())
-  .catch(err => {
-    console.error("ERRO INIT DB:", err);
-    process.exit(1);
-  });
+init();
