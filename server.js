@@ -8,14 +8,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-/* ========================
-   CONFIG
-======================== */
 const ADMIN_KEY = process.env.ADMIN_KEY;
 
-/* ========================
-   RATE LIMIT
-======================== */
+/* RATE LIMIT */
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
@@ -23,20 +18,17 @@ app.use(
   })
 );
 
-/* ========================
-   HEALTH
-======================== */
+/* HEALTH */
 app.get("/", (req, res) => {
   res.json({ status: "Esquiva API rodando" });
 });
 
-/* ========================
+/* =========================
    ADMIN - CREATE MERCHANT
-======================== */
+========================= */
 app.post("/admin/merchant/create", async (req, res) => {
   try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== ADMIN_KEY) {
+    if (req.headers["x-admin-key"] !== ADMIN_KEY) {
       return res.status(401).json({ error: "Não autorizado (admin)" });
     }
 
@@ -55,14 +47,14 @@ app.post("/admin/merchant/create", async (req, res) => {
 
     res.json({ merchantId, apiKey });
   } catch (err) {
-    console.error("ERRO CREATE MERCHANT:", err);
+    console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* ========================
+/* =========================
    MERCHANT - BALANCE
-======================== */
+========================= */
 app.get("/merchant/:merchantId/balance", async (req, res) => {
   try {
     const apiKey = req.headers["x-api-key"];
@@ -87,32 +79,28 @@ app.get("/merchant/:merchantId/balance", async (req, res) => {
       balance: result.rows[0].balance.toString(),
     });
   } catch (err) {
-    console.error("ERRO BALANCE:", err);
+    console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* ========================
+/* =========================
    PAYMENT - CREATE
-======================== */
+========================= */
 app.post("/payment/create", async (req, res) => {
   try {
     const apiKey = req.headers["x-api-key"];
+    const { merchantId, amountUSDT } = req.body;
+
     if (!apiKey) {
       return res.status(401).json({ error: "API Key ausente" });
     }
-
-    const { merchantId, amountUSDT } = req.body;
-
     if (!merchantId || !amountUSDT) {
-      return res.status(400).json({
-        error: "merchantId e amountUSDT são obrigatórios",
-      });
+      return res.status(400).json({ error: "merchantId e amountUSDT são obrigatórios" });
     }
 
-    // valida lojista
     const merchant = await pool.query(
-      `SELECT merchant_id FROM merchants
+      `SELECT * FROM merchants
        WHERE merchant_id = $1 AND api_key = $2`,
       [merchantId, apiKey]
     );
@@ -129,38 +117,28 @@ app.post("/payment/create", async (req, res) => {
       [paymentId, merchantId, amountUSDT]
     );
 
-    res.json({
-      paymentId,
-      amountUSDT,
-      status: "CREATED",
-    });
+    res.json({ paymentId, amountUSDT, status: "CREATED" });
   } catch (err) {
-    console.error("ERRO PAYMENT CREATE:", err);
+    console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* ========================
+/* =========================
    PAYMENT - CONFIRM
-======================== */
+========================= */
 app.post("/payment/confirm", async (req, res) => {
   try {
     const { paymentId } = req.body;
-    if (!paymentId) {
-      return res.status(400).json({ error: "paymentId é obrigatório" });
-    }
 
     const payment = await pool.query(
-      `SELECT merchant_id, amount_usdt FROM payments
-       WHERE payment_id = $1 AND status = 'CREATED'`,
+      `SELECT * FROM payments WHERE payment_id = $1`,
       [paymentId]
     );
 
     if (payment.rowCount === 0) {
       return res.status(404).json({ error: "Pagamento não encontrado" });
     }
-
-    const { merchant_id, amount_usdt } = payment.rows[0];
 
     await pool.query(
       `UPDATE payments SET status = 'PAID' WHERE payment_id = $1`,
@@ -171,7 +149,7 @@ app.post("/payment/confirm", async (req, res) => {
       `UPDATE merchants
        SET balance = balance + $1
        WHERE merchant_id = $2`,
-      [amount_usdt, merchant_id]
+      [payment.rows[0].amount_usdt, payment.rows[0].merchant_id]
     );
 
     res.json({
@@ -180,15 +158,13 @@ app.post("/payment/confirm", async (req, res) => {
       message: "Pagamento confirmado com sucesso",
     });
   } catch (err) {
-    console.error("ERRO PAYMENT CONFIRM:", err);
+    console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-/* ========================
-   START
-======================== */
+/* START */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("API rodando na porta", PORT);
-});
+app.listen(PORT, () =>
+  console.log("API rodando na porta", PORT)
+);
